@@ -1,102 +1,99 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import plotly.graph_objects as go
-from datetime import datetime
+from plotly.subplots import make_subplots
 
-# --- SET PAGE CONFIG ---
-st.set_page_config(page_title="EGX Stock Analysis", layout="wide")
+# Page Configuration
+st.set_page_config(page_title="EGX Pro Advisor", layout="wide")
 
-# --- CUSTOM FUNCTIONS ---
-def clean_df(df):
-    """Cleans yfinance multi-index columns if they exist"""
+def add_indicators(df):
+    # Fix multi-index columns from yfinance
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+
+    # RSI Calculation
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    # Moving Averages
+    df['SMA20'] = df['Close'].rolling(window=20).mean()
+    df['SMA50'] = df['Close'].rolling(window=50).mean()
+
+    # Bollinger Bands
+    df['StdDev'] = df['Close'].rolling(window=20).std()
+    df['Upper_Band'] = df['SMA20'] + (df['StdDev'] * 2)
+    df['Lower_Band'] = df['SMA20'] - (df['StdDev'] * 2)
     return df
 
-@st.cache_data(ttl=600)
-def get_stock_stats(ticker, target_gain=0, investment=1):
-    """Fetches stock data and returns a cleaned dictionary of stats"""
-    try:
-        # Download 60 days to ensure enough data for 14-day indicators
-        data = yf.download(ticker, period="60d", progress=False)
-        df = clean_df(data)
-        
-        # VALIDATION: Ensure we have enough data to calculate RSI/ATR
-        if df.empty or len(df) < 15:
-            return None
-        
-        # FIX: Explicitly cast to float to prevent "identically-labeled Series" error
-        close_now = float(df['Close'].iloc[-1])
-        close_prev = float(df['Close'].iloc[-2])
-        volume_now = int(df['Volume'].iloc[-1])
-        
-        # Technical Indicators
-        change = ((close_now - close_prev) / close_prev) * 100
-        rsi_series = ta.rsi(df['Close'], length=14)
-        atr_series = ta.atr(df['High'], df['Low'], df['Close'], length=14)
-        
-        if rsi_series is None or rsi_series.empty:
-            return None
-            
-        rsi = float(rsi_series.iloc[-1])
-        atr = float(atr_series.iloc[-1])
-        
-        # Calculations
-        required_move_pct = target_gain / investment if investment > 0 else 0
-        goal_tp = close_now * (1 + required_move_pct)
-        sl_level = close_now - (atr * 1.5)
-        
-        return {
-            "Symbol": ticker.replace(".CA", ""),
-            "Price": round(close_now, 2),
-            "Change %": round(change, 2),
-            "RSI": round(rsi, 1),
-            "Buy Range": f"{round(close_now - (atr*0.3), 2)} - {round(close_now, 2)}",
-            "Goal TP": round(goal_tp, 2),
-            "Volatility SL": round(sl_level, 2),
-            "Volume": volume_now
-        }
-    except Exception:
-        return None
+def get_recommendation(df):
+    last = df.iloc[-1]
+    price = float(last['Close'])
+    rsi = float(last['RSI'])
 
-# --- UI LAYOUT ---
-st.title("🇪🇬 EGX Market Dashboard")
+    rec = {"action": "HOLD ⚪", "tp1": "-", "tp2": "-", "sl": "-", "reason": "السعر في منطقة محايدة حالياً."}
 
-# Sidebar - User Inputs
-st.sidebar.header("Investment Settings")
-target_gain = st.sidebar.number_input("Target Profit (EGP)", value=500)
-investment_amt = st.sidebar.number_input("Investment Amount (EGP)", value=5000)
+    # Buy Signal
+    if rsi <= 35 or price <= last['Lower_Band']:
+        rec["action"] = "BUY 🟢"
+        rec["sl"] = round(price * 0.95, 2)
+        rec["tp1"] = round(last['SMA20'], 2)
+        rec["tp2"] = round(last['Upper_Band'], 2)
+        rec["reason"] = "تشبع بيعي واضح (RSI منخفض) أو ملامسة دعم البولينجر السفلي."
 
-# Stock List (Egyptian Exchange Tickers)
-egx_tickers = ["ABUK.CA", "EAST.CA", "FWRY.CA", "HRHO.CA", "COMI.CA", "TMGH.CA", "EKHO.CA"]
+    # Sell Signal
+    elif rsi >= 70 or price >= last['Upper_Band']:
+        rec["action"] = "SELL 🔴"
+        rec["reason"] = "تشبع شرائي مرتفع أو ملامسة مقاومة البولينجر العلوية."
 
-# --- PROCESSING ---
-with st.spinner("Fetching market data..."):
-    market_data = []
-    for t in egx_tickers:
-        stats = get_stock_stats(t, target_gain, investment_amt)
-        if stats:
-            market_data.append(stats)
+    return rec
 
-if market_data:
-    df_market = pd.DataFrame(market_data)
-    
-    # --- TOP GAINERS TABLE ---
-    st.subheader("🚀 Top 5 Gainers (Today)")
-    # We use .reset_index(drop=True) to ensure clean sorting labels
-    top_gainers = df_market.sort_values("Change %", ascending=False).head(5).reset_index(drop=True)
-    
-    # Gradient styling requires 'matplotlib' in requirements.txt
-    st.table(top_gainers.style.background_gradient(subset=['Change %'], cmap='RdYlGn'))
+# --- UI Interface ---
+st.title("📊 مستشارك الذكي للبورصة المصرية")
+st.markdown("---")
 
-    # --- ALL STOCKS DATA ---
-    st.subheader("📊 Market Overview")
-    st.dataframe(df_market, use_container_width=True)
-    
+egx_list = ["COMI.CA", "FWRY.CA", "TMGH.CA", "EKHO.CA", "ABUK.CA", "SWDY.CA", "ETEL.CA", "AMOC.CA", "ORAS.CA", "PHDC.CA"]
+selected_stock = st.sidebar.selectbox("اختر السهم لتحليله:", egx_list)
+period = st.sidebar.selectbox("فترة عرض الشارت:", ["3mo", "6mo", "1y"], index=1)
+
+with st.spinner('جاري تحديث بيانات السوق...'):
+    df = yf.download(selected_stock, period="1y", interval="1d", progress=False)
+
+if not df.empty:
+    df = add_indicators(df)
+    rec = get_recommendation(df)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("التوصية الحالية", rec["action"])
+    c2.metric("الهدف الأول (TP1)", rec["tp1"])
+    c3.metric("الهدف الثاني (TP2)", rec["tp2"])
+    c4.metric("وقف الخسارة (SL)", rec["sl"])
+
+    st.info(f"💡 **تحليل الخبير الآلي:** {rec['reason']}")
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.05, row_heights=[0.7, 0.3])
+
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
+                                 low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], name="مقاومة بولينجر",
+                             line=dict(color='rgba(255,255,255,0.2)', dash='dot')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], name="دعم بولينجر",
+                             line=dict(color='rgba(255,255,255,0.2)', dash='dot')), row=1, col=1)
+
+    if rec["action"] == "BUY 🟢":
+        fig.add_annotation(x=df.index[-1], y=df['Low'].iloc[-1], text="دخول",
+                           showarrow=True, arrowhead=1, bgcolor="green", font=dict(color="white"), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='orange')), row=2, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+
+    fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
+    st.plotly_chart(fig, use_container_width=True)
 else:
-    st.error("Could not fetch data. Check your internet connection or Yahoo Finance rate limits.")
-
-# --- FOOTER ---
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.error("لم يتم العثور على بيانات لهذا السهم. تأكد من اتصال الإنترنت.")
