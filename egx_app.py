@@ -32,20 +32,39 @@ def run_market_scanner():
     for ticker in EGX_LIST:
         data = yf.download(ticker, period="60d", interval="1d", progress=False)
         df = get_indicators(data)
+        
         if df is not None:
             last = df.iloc[-1]
-            prev = df.iloc[-2]
+            price = round(float(last['Close']), 2)
+            rsi = round(float(last['RSI']), 2)
             
-            signal = "Neutral ⚪"
-            if last['RSI'] < 30: signal = "Oversold/BUY 🟢"
-            elif last['RSI'] > 70: signal = "Overbought/SELL 🔴"
-            elif prev['SMA20'] < prev['SMA50'] and last['SMA20'] > last['SMA50']: signal = "Golden Cross 🔥"
+            # --- حسابات إدارة المخاطر ---
+            # نطاق الشراء: بين السعر الحالي و 1% أقل منه
+            buy_range = f"{round(price * 0.99, 2)} - {price}"
+            
+            # جني الأرباح (Target): هدف أول 5% وهدف ثاني 10%
+            tp1 = round(price * 1.05, 2)
+            tp2 = round(price * 1.10, 2)
+            
+            # وقف الخسارة (Stop Loss): كسر 3% لأسفل أو كسر الـ Lower Bollinger Band
+            stop_loss = round(min(price * 0.97, last['Lower_Band']), 2)
+            
+            # --- منطق الإشارات ---
+            status = "انتظار ⚪"
+            if rsi < 35:
+                status = "شراء (تشبع بيعي) 🟢"
+            elif rsi > 70:
+                status = "بيع (تضخم) 🔴"
+            elif last['SMA20'] > last['SMA50']:
+                status = "إيجابي (ترند صاعد) ✅"
             
             results.append({
-                "Symbol": ticker.replace(".CA", ""),
-                "Price": round(float(last['Close']), 2),
-                "RSI": round(float(last['RSI']), 2),
-                "Signal": signal
+                "السهم": ticker.replace(".CA", ""),
+                "السعر الحالي": price,
+                "الحالة": status,
+                "نطاق الشراء": buy_range if "شراء" in status or "إيجابي" in status else "-",
+                "الهدف (TP)": f"{tp1} / {tp2}",
+                "وقف الخسارة (SL)": stop_loss if "شراء" in status or "إيجابي" in status else "-"
             })
     return pd.DataFrame(results)
 
