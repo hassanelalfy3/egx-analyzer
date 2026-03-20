@@ -5,3 +5,4 @@ plotly
 lxml
 requests
 html5lib
+matplotlib
