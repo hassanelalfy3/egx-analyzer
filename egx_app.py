@@ -5,83 +5,84 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 1. إعدادات الصفحة
-st.set_page_config(page_title="EGX Pro Radar", layout="wide")
+st.set_page_config(page_title="EGX Ultimate Scanner", layout="wide")
 
-def add_indicators(df):
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+# قائمة الأسهم المراقبة
+EGX_LIST = ["COMI.CA", "FWRY.CA", "TMGH.CA", "EKHO.CA", "ABUK.CA", "SWDY.CA", "ETEL.CA", "AMOC.CA", "ORAS.CA", "PHDC.CA"]
+
+def get_indicators(df):
+    if df.empty or len(df) < 50: return None
+    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+    
+    # RSI
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = 100 - (100 / (1 + (gain / loss)))
+    
+    # Moving Averages
     df['SMA20'] = df['Close'].rolling(window=20).mean()
-    df['Upper_Band'] = df['SMA20'] + (df['Close'].rolling(window=20).std() * 2)
-    df['Lower_Band'] = df['SMA20'] - (df['Close'].rolling(window=20).std() * 2)
+    df['SMA50'] = df['Close'].rolling(window=50).mean()
+    
     return df
 
-def get_recommendation(df):
-    if len(df) < 2: return {"action": "N/A", "tp1": "-", "tp2": "-", "sl": "-", "reason": "No data"}
-    last = df.iloc[-1]
-    price, rsi = float(last['Close']), float(last['RSI'])
-    rec = {"action": "HOLD ⚪", "tp1": "-", "tp2": "-", "sl": "-", "reason": "Neutral zone."}
-    if rsi <= 35 or price <= last['Lower_Band']:
-        rec = {"action": "BUY 🟢", "sl": round(price * 0.97, 2), "tp1": round(last['SMA20'], 2), "tp2": round(last['Upper_Band'], 2), "reason": "Oversold/Support hit."}
-    elif rsi >= 70 or price >= last['Upper_Band']:
-        rec = {"action": "SELL 🔴", "tp1": "-", "tp2": "-", "sl": "-", "reason": "Overbought/Resistance hit."}
-    return rec
+# --- وظيفة المسح الشامل ---
+def run_market_scanner():
+    results = []
+    for ticker in EGX_LIST:
+        data = yf.download(ticker, period="60d", interval="1d", progress=False)
+        df = get_indicators(data)
+        if df is not None:
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
+            
+            signal = "Neutral ⚪"
+            if last['RSI'] < 30: signal = "Oversold/BUY 🟢"
+            elif last['RSI'] > 70: signal = "Overbought/SELL 🔴"
+            elif prev['SMA20'] < prev['SMA50'] and last['SMA20'] > last['SMA50']: signal = "Golden Cross 🔥"
+            
+            results.append({
+                "Symbol": ticker.replace(".CA", ""),
+                "Price": round(float(last['Close']), 2),
+                "RSI": round(float(last['RSI']), 2),
+                "Signal": signal
+            })
+    return pd.DataFrame(results)
 
 # --- واجهة التطبيق ---
-st.title("🏹 EGX Smart Radar Pro")
+st.title("🚀 رادار البورصة المصرية - النسخة الاحترافية")
 
-# --- قائمة التحكم الجانبية الجديدة ---
-st.sidebar.header("⚙️ إعدادات التحليل")
+# 1. قسم الماسح الضوئي (Scanner)
+with st.expander("🔍 فحص سريع للسوق (Market Scanner)", expanded=True):
+    if st.button("تحديث الفحص الآن"):
+        scanner_df = run_market_scanner()
+        
+        # تنسيق الجدول بالألوان
+        def color_signal(val):
+            color = 'white'
+            if 'BUY' in val or 'Golden' in val: color = '#90ee90' # أخضر فاتح
+            elif 'SELL' in val: color = '#ffcccb' # أحمر فاتح
+            return f'background-color: {color}; color: black'
 
-egx_list = ["COMI.CA", "FWRY.CA", "TMGH.CA", "EKHO.CA", "ABUK.CA", "SWDY.CA", "ETEL.CA", "AMOC.CA", "ORAS.CA", "PHDC.CA"]
-selected_stock = st.sidebar.selectbox("اختر السهم:", egx_list)
+        st.table(scanner_df.style.applymap(color_signal, subset=['Signal']))
+    else:
+        st.info("اضغط على الزر أعلاه لفحص الأسهم العشرة حالياً.")
 
-# إعداد الفواصل الزمنية (Intervals)
-interval_options = {
-    "1 Minute": "1m",
-    "5 Minutes": "5m",
-    "30 Minutes": "30m",
-    "1 Hour": "1h",
-    "1 Day": "1d",
-    "1 Week": "1wk"
-}
-selected_label = st.sidebar.selectbox("الفصل الزمني (Timeframe):", list(interval_options.keys()), index=4)
-interval = interval_options[selected_label]
+st.divider()
 
-# تحديد الفترة الإجمالية تلقائياً بناءً على الفصل الزمني (قيود yfinance)
-if interval in ['1m', '5m', '30m']:
-    period = "7d"  # البيانات اللحظية محدودة بـ 7 أيام
-elif interval == '1h':
-    period = "1mo"
-else:
-    period = "1y"
+# 2. قسم التحليل التفصيلي (القديم المطوّر)
+st.subheader("📊 التحليل التفصيلي لسهم محدد")
+selected_stock = st.selectbox("اختر السهم للعرض الفني:", EGX_LIST)
 
-# سحب البيانات
-with st.spinner(f'جاري تحميل بيانات {selected_label}...'):
-    df = yf.download(selected_stock, period=period, interval=interval, progress=False)
+with st.spinner('جاري جلب بيانات الشارت...'):
+    df_detail = yf.download(selected_stock, period="1y", interval="1d", progress=False)
+    df_detail = get_indicators(df_detail)
 
-if not df.empty:
-    df = add_indicators(df)
-    rec = get_recommendation(df)
-    
-    # عرض المؤشرات السريعة
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("التوصية", rec["action"])
-    c2.metric("هدف 1", rec["tp1"])
-    c3.metric("هدف 2", rec["tp2"])
-    c4.metric("وقف خسارة", rec["sl"])
-    
-    st.info(f"💡 **تحليل الفاصل الزمني ({selected_label}):** {rec['reason']}")
-
+if df_detail is not None:
     # الشارت
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='orange')), row=2, col=1)
-    fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False)
+    fig.add_trace(go.Candlestick(x=df_detail.index, open=df_detail['Open'], high=df_detail['High'], low=df_detail['Low'], close=df_detail['Close'], name="Price"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_detail.index, y=df_detail['SMA20'], name="SMA 20", line=dict(color='yellow')), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_detail.index, y=df_detail['RSI'], name="RSI", line=dict(color='orange')), row=2, col=1)
+    fig.update_layout(height=500, template="plotly_dark", xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("⚠️ لا توجد بيانات متاحة لهذا الفاصل الزمني حالياً (تأكد من وقت الجلسة).")
