@@ -1,11 +1,7 @@
 streamlit
 yfinance
 pandas
-plotly
-lxml
-requests
-html5lib
-matplotlib
 pandas_ta
 plotly
 numpy
+matplotlib
