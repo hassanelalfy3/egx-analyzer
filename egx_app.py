@@ -5,10 +5,17 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # 1. إعدادات الصفحة
-st.set_page_config(page_title="EGX Professional Radar", layout="wide", page_icon="📈")
+st.set_page_config(page_title="EGX Ultimate Radar", layout="wide", page_icon="📈")
 
-# --- قاعدة بيانات الأسهم المصرية الشاملة (ثابتة لضمان العمل) ---
+# --- قاعدة بيانات شاملة تشمل المؤشرات والأسهم ---
 EGX_DB = {
+    # المؤشرات الرئيسية
+    "مؤشر EGX 30": "^EGX30",
+    "مؤشر EGX 70 EWI": "^EGX70EWI",
+    "مؤشر EGX 100 EWI": "^EGX100EWI",
+    "مؤشر EGX 33 Shariah": "^EGX33",
+    
+    # أهم الأسهم
     "البنك التجاري الدولي": "COMI.CA",
     "فوري": "FWRY.CA",
     "مجموعة طلعت مصطفى": "TMGH.CA",
@@ -41,25 +48,26 @@ EGX_DB = {
     "فيصل الإسلامي": "FAIT.CA"
 }
 
-# تجهيز القائمة للعرض
+# تجهيز الخيارات للعرض في القائمة
 display_options = {f"{name} ({ticker})": ticker for name, ticker in EGX_DB.items()}
 
 # --- إدارة الحالة (Watchlist) ---
 if 'my_watchlist' not in st.session_state:
-    st.session_state.my_watchlist = ["COMI.CA", "FWRY.CA", "TMGH.CA", "ESRS.CA"]
+    # جعل المؤشرات هي الافتراضية عند الفتح
+    st.session_state.my_watchlist = ["^EGX30", "^EGX70EWI", "COMI.CA", "FWRY.CA"]
 
 # --- القائمة الجانبية ---
-st.sidebar.header("📁 إدارة الأسهم")
+st.sidebar.header("📁 إدارة المحفظة والمؤشرات")
 
-# اختيار متعدد من القائمة المدمجة
-selected_stocks = st.sidebar.multiselect(
-    "اختر الأسهم لمراقبتها:",
+# اختيار متعدد (Multiselect)
+selected_items = st.sidebar.multiselect(
+    "اختر المؤشرات والأسهم لمراقبتها:",
     options=list(display_options.keys()),
     default=[k for k, v in display_options.items() if v in st.session_state.my_watchlist]
 )
 
 if st.sidebar.button("💾 حفظ وتحديث الرادار"):
-    st.session_state.my_watchlist = [display_options[x] for x in selected_stocks]
+    st.session_state.my_watchlist = [display_options[x] for x in selected_items]
     st.rerun()
 
 # --- الدوال الفنية ---
@@ -80,11 +88,11 @@ def get_indicators(df):
     return df
 
 # --- الواجهة الرئيسية ---
-st.title("🏹 رادار البورصة المصرية - Smart Scanner")
+st.title("🏹 رادار البورصة المصرية الذكي")
 
-# 1. الماسح الضوئي
-with st.expander("🔍 فحص وتحليل الأسهم المختارة", expanded=True):
-    if st.button("🚀 تشغيل الفحص الآن"):
+# 1. الماسح الضوئي (Scanner)
+with st.expander("🔍 فحص وتحليل الحالة الحالية", expanded=True):
+    if st.button("🚀 تشغيل الفحص"):
         results = []
         progress_bar = st.progress(0)
         
@@ -100,21 +108,22 @@ with st.expander("🔍 فحص وتحليل الأسهم المختارة", expan
                     status = "انتظار ⚪"
                     buy_range, tp, sl = "-", "-", "-"
                     
+                    # ملاحظة: استراتيجية الشراء والبيع للمؤشرات تكون للمتابعة العامة
                     if rsi < 35:
-                        status = "شراء 🟢"
+                        status = "تشبع بيعي 🟢"
                         buy_range = f"{round(price * 0.99, 2)} - {price}"
-                        tp = f"{round(price * 1.05, 2)} / {round(price * 1.10, 2)}"
+                        tp = f"{round(price * 1.05, 2)}"
                         sl = round(min(price * 0.97, last['Lower_Band']), 2)
                     elif rsi > 70:
-                        status = "بيع 🔴"
+                        status = "تشبع شرائي 🔴"
                     
                     results.append({
-                        "السهم": ticker.replace(".CA", ""),
-                        "السعر": price,
+                        "الاسم/الرمز": ticker,
+                        "السعر/النقطة": price,
+                        "RSI": rsi,
                         "الحالة": status,
-                        "نطاق الشراء": buy_range,
-                        "الأهداف": tp,
-                        "الوقف": sl
+                        "الدعم/نطاق الشراء": buy_range,
+                        "المقاومة/الهدف": tp
                     })
             except: continue
             progress_bar.progress((i + 1) / len(st.session_state.my_watchlist))
@@ -122,18 +131,24 @@ with st.expander("🔍 فحص وتحليل الأسهم المختارة", expan
         if results:
             st.table(pd.DataFrame(results))
         else:
-            st.warning("برجاء اختيار أسهم من القائمة الجانبية.")
+            st.info("اختر عناصر من القائمة الجانبية لبدء الفحص.")
 
 # 2. الشارت التفصيلي
 if st.session_state.my_watchlist:
     st.divider()
-    selected_stock = st.selectbox("عرض الرسم البياني المفصل:", st.session_state.my_watchlist)
+    selected_view = st.selectbox("عرض الرسم البياني التفصيلي:", st.session_state.my_watchlist)
     
     with st.spinner('جاري التحميل...'):
-        df_plot = yf.download(selected_stock, period="1y", interval="1d", progress=False)
+        df_plot = yf.download(selected_view, period="1y", interval="1d", progress=False)
         df_plot = get_indicators(df_plot)
 
     if df_plot is not None:
-        fig = go.Figure(data=[go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], low=df_plot['Low'], close=df_plot['Close'])])
-        fig.update_layout(height=450, template="plotly_dark", xaxis_rangeslider_visible=False)
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+        # الشموع
+        fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot['Open'], high=df_plot['High'], 
+                                     low=df_plot['Low'], close=df_plot['Close'], name="السعر"), row=1, col=1)
+        # RSI
+        fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot['RSI'], name="RSI", line=dict(color='orange')), row=2, col=1)
+        
+        fig.update_layout(height=500, template="plotly_dark", xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
