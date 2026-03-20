@@ -13,7 +13,7 @@ def fetch_egx_symbols():
     try:
         # محاولة جلب البيانات من Wikipedia (جدول شركات الـ EGX30 أو EGX100)
         url = "https://en.wikipedia.org/wiki/EGX_30_Index"
-        tables = pd.read_html(url)
+        tables = pd.read_html(url, flavor='lxml')
         df_wiki = tables[1] # الجدول الثاني عادة يحتوي على القائمة
         
         # تنظيف البيانات وتحويلها لقاموس (اسم الشركة: الرمز)
